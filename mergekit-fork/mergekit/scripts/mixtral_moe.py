@@ -334,38 +334,6 @@ def build(
             tensor_name, tensor.to(dtype=out_dtype), clone=merge_options.clone_tensors
         )
 
-    for layer_idx in range(base_cfg.num_hidden_layers):
-        for weight_info in MISTRAL_INFO.layer_weights(index=layer_idx, config=base_cfg):
-            tensor_name = weight_info.name
-
-            if ".mlp." in tensor_name:
-                for moe_index, expert in enumerate(config.experts):
-                    expert_name = tensor_name.replace(
-                        ".mlp.gate_proj", f".block_sparse_moe.experts.{moe_index}.w1"
-                    )
-                    expert_name = expert_name.replace(
-                        ".mlp.down_proj", f".block_sparse_moe.experts.{moe_index}.w2"
-                    )
-                    expert_name = expert_name.replace(
-                        ".mlp.up_proj", f".block_sparse_moe.experts.{moe_index}.w3"
-                    )
-                    expert_loader = loaders.get(expert.model_ref)
-                    tensor = expert_loader.get_tensor(
-                        tensor_name, aliases=weight_info.aliases
-                    )
-                    if expert.noise_scale:
-                        tensor += torch.randn_like(tensor) * expert.noise_scale
-                    writer.save_tensor(
-                        expert_name, tensor.to(dtype=out_dtype), clone=True
-                    )
-                continue
-            writer.save_tensor(
-                tensor_name,
-                base_loader.get_tensor(tensor_name, aliases=weight_info.aliases).to(
-                    dtype=out_dtype
-                ),
-            )
-
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         base_model.model.path, revision=base_model.model.revision
     )
@@ -389,13 +357,6 @@ def build(
     # gate_vecs: (num_layers, num_experts, hidden_size)
 
     warn_degenerate_gates(gate_vecs)
-
-    for layer_idx in range(base_cfg.num_hidden_layers):
-        writer.save_tensor(
-            f"model.layers.{layer_idx}.block_sparse_moe.gate.weight",
-            gate_vecs[layer_idx, :, :].contiguous().to(dtype=out_dtype),
-        )
-    writer.finalize()
 
     # Extract and save only the weights of the MoE router
     moe_router_weights = {

@@ -355,15 +355,19 @@ def build(
         device=device,
     )
     # gate_vecs: (num_layers, num_experts, hidden_size)
-
+    router_weights = gate_vecs[:, : len(config.experts), :]
+    shared_router_weights = gate_vecs[:, len(config.experts) :, :]
+    warn_degenerate_gates(gate_vecs)
     warn_degenerate_gates(gate_vecs)
 
     # Extract and save only the weights of the MoE router
-    moe_router_weights = {
-        f"model.layers.{layer_idx}.block_sparse_moe.gate.weight": gate_vecs[layer_idx, :, :].contiguous().to(dtype=out_dtype)
-        for layer_idx in range(base_cfg.num_hidden_layers)
-    }
-    torch.save(moe_router_weights, os.path.join(out_path, 'moe_router_weights.pth'))
+    out_cfg.write_model(
+        out_path,
+        config,
+        merge_options,
+        router_weights=router_weights,
+        shared_router_weights=shared_router_weights,
+    )
 
     if merge_options.copy_tokenizer:
         logging.info("Saving tokenizer...")
